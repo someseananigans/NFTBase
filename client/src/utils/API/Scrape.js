@@ -9,20 +9,23 @@ const Scrape = {
   wallet: (wallet) => fetch(`/api/scrape/wallet/${wallet}`, {
     method: 'GET',
     headers: hNorm
-  }).then(response => response.json()),
+  })
+    .then(response => response.json())
+  // .then(res => res.text())
+  // .then(text => console.log(text))
+  ,
 
   // expects "nftCollection" obj w/ "collection" w/ "collectionName" and "openseaCollectionURL"
   multiCollection: (nftCollections) => fetch('/api/scrape/collections', {
-    method: 'POST',
+    method: 'GET',
     headers: hNorm,
     body: JSON.stringify(nftCollections)
   }).then(response => response.json()),
 
   // expects "collection" obj w/ "collectionName" and "openseaCollectionURL"
-  oneCollection: (collection) => fetch('/api/scrape/collection', {
-    method: 'POST',
+  oneCollection: (urlEnd) => fetch(`/api/scrape/collection/${urlEnd}`, {
+    method: 'GET',
     headers: hNorm,
-    body: JSON.stringify(collection)
   }).then(response => response.json()),
 
 }
