@@ -1,11 +1,11 @@
-// import { } from '../components'
+import { Searchbar } from '../components'
 // import '../index.css'
 
 
 const Home = () => {
   return (
     <>
-      <h1>test</h1>
+      <Searchbar />
     </>
   )
 }
