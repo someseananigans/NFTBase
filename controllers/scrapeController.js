@@ -1,7 +1,14 @@
 const router = require('express').Router()
-const puppeteer = require('puppeteer');
-const { collection } = require('../models/User');
+const puppeteer = require('puppeteer-extra');
 
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
+
+
+const blocked_domains = [
+  'googlesyndication.com',
+  'adservice.google.com',
+];
 
 // grab basic info from user's opensea account
 router.get('/scrape/wallet/:wallet', async (req, res) => {
@@ -11,7 +18,10 @@ router.get('/scrape/wallet/:wallet', async (req, res) => {
     const address = `https://opensea.io/${req.params.wallet}`
 
     // launch browser
-    const browser = await puppeteer.launch({ headless: false });
+    const browser = await puppeteer.launch({
+      userDataDir: '/tmp/user-data-dir',
+      headless: true
+    });
 
     // open new tab in browser
     const page = await browser.newPage();
@@ -23,20 +33,40 @@ router.get('/scrape/wallet/:wallet', async (req, res) => {
       height: 1000
     });
 
+    // turns request receptor on
+    await page.setRequestInterception(true);
+    // if page makes a request to image or style resorce abort it
+    page.on('request', request => {
+      const url = request.url()
+      if (request.resourceType() === 'image' || request.resourceType() === 'stylesheet' || request.resourceType() === 'font' || request.resourceType() === 'media' || request.resourceType() === 'manifest' || blocked_domains.some(domain => url.includes(domain))) {
+        request.abort();
+      }
+      else {
+        request.continue();
+      }
+
+    });
+
+
     // open address on the tab
     await page.goto(address);
+    //
+    // wait for img to load
+    await page.waitForSelector(".AssetMedia--img img");
 
     // scroll down to load elements
     await page.evaluate(() => {
       window.scrollBy(0, window.innerHeight);
     });
 
-    // wait for img to load
-    await page.waitForSelector(".AssetMedia--img img");
+
 
     // await page.screenshot({ path: "walletnft.png" });
 
-    // grab user information from opensea
+    /**
+    * @method user grabs user information from opensea
+    * @return {Object} shortAdress, username, profileImg, twitter
+    */
     const user = await page.evaluate(() => {
 
       const twitter = document.querySelector(".AccountHeader--social-container") ? document.querySelector(".AccountHeader--social-container").href : null
@@ -55,7 +85,10 @@ router.get('/scrape/wallet/:wallet', async (req, res) => {
       }
     })
 
-    // grab nftcollection surface level information
+    /**
+    * @method nftCollections grab nftcollection surface level information
+    * @return {Array} nftStorage includes assets and collections
+    */
     const nftCollections = await page.evaluate(() => {
 
       // select all assets
@@ -97,20 +130,18 @@ router.get('/scrape/wallet/:wallet', async (req, res) => {
       return nftStorage
     })
 
-    const data = {
-      user: { opensea: address, ...user },
-      nftCollections
-    }
 
-    res.json({ data: data, status: 200 })
+    res.json({
+      user: { opensea: address, ...user },
+      nftCollections,
+      status: 200
+    })
 
     await browser.close()
 
   } catch (error) {
 
     res.json({ data: null, dataSent: req.params.wallet, status: 400 })
-
-    await browser.close()
 
   }
 
@@ -140,10 +171,23 @@ router.post('/scrape/collections', async (req, res) => {
         height: 1000
       });
 
+      // turns request receptor on
+      await newTab.setRequestInterception(true);
+      // if page makes a request to image or style resorce abort it
+      newTab.on('request', request => {
+        if (request.resourceType() === 'image' || request.resourceType() === 'stylesheet')
+          request.abort();
+        else
+          request.continue();
+      });
+
       // open address on the tab
       await newTab.goto(nftCollection.collection.openseaCollectionURL, { waitUntil: "networkidle2" })
 
-      // grab inner info / stat info
+      /**
+      * @method statistics grab inner info / stat info
+      * @return {Object} floor, volume, owners, items 
+      */
       const statistics = await newTab.evaluate(() => {
         /* 
         const social = document.querySelectorAll(".fresnel-container")
@@ -202,12 +246,15 @@ router.post('/scrape/collections', async (req, res) => {
 
 
 // grab single collection's stat info (needs collection: collection)
-router.post('/scrape/collection', async (req, res) => {
+router.get('/scrape/collection/:url', async (req, res) => {
 
   try {
 
     // launch browser
-    const browser = await puppeteer.launch({ headless: false });
+    const browser = await puppeteer.launch({
+      userDataDir: '/tmp/user-data-dir',
+      headless: true
+    });
 
     // open new tab in browser
     const page = await browser.newPage()
@@ -215,13 +262,31 @@ router.post('/scrape/collection', async (req, res) => {
     // set page rules for tab
     await page.setDefaultNavigationTimeout(0);
 
+    // turns request receptor on
+    await page.setRequestInterception(true);
+    // if page makes a request to image or style resorce abort it
+    page.on('request', request => {
+      const url = request.url()
+      if (request.resourceType() === 'image' || request.resourceType() === 'stylesheet' || request.resourceType() === 'font' || request.resourceType() === 'media' || request.resourceType() === 'manifest' || blocked_domains.some(domain => url.includes(domain))) {
+        request.abort();
+      }
+      else {
+        request.continue();
+      }
+
+    });
+
     // open address on the tab
-    await page.goto(req.body.collection.openseaCollectionURL)
+    // await page.goto(`https://opensea.io/collection/official-apezuki`)
+    await page.goto(`https://opensea.io/collection/${req.params.url}`)
+    // waitUntil: 'domcontentloaded'
 
-    /* await page.evaluate(() => {
-      window.scrollBy(0, window.innerHeight);
-    }); */
+    await page.waitForSelector('.CollectionHeader--description');
 
+    /**
+    * @method statistics grab inner info / stat info
+    * @return {Object} floor, volume, owners, items
+    */
     const statistics = await page.evaluate(() => {
       /* 
       const social = document.querySelectorAll(".fresnel-container")
@@ -247,10 +312,11 @@ router.post('/scrape/collection', async (req, res) => {
     })
 
     res.json({
-      data: {
-        collectionName: req.body.collection.collectionName,
-        statistics: statistics
-      },
+      // data: {
+      //   // collectionName: req.body.collectionName,
+      //   statistics: statistics
+      // },
+      statistics,
       status: 200
     })
 
@@ -261,12 +327,11 @@ router.post('/scrape/collection', async (req, res) => {
     console.log(error)
 
     res.json({
-      data: null,
-      dataSent: req.body.collection,
+      statistics: null,
+      dataSent: req.params.url,
       status: 400
     })
 
-    await browser.close()
   }
 
 })
